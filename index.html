@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>스마트 가계부 Pro Max v6.6</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #3498db; --income: #27ae60; --expense: #e74c3c; --bg: #f4f7f6; --balance: #f1c40f; }
+        body { font-family: 'Malgun Gothic', sans-serif; background-color: var(--bg); margin: 0; padding: 0; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; min-height: 100vh; position: relative; padding-bottom: 70px; box-shadow: 0 0 15px rgba(0,0,0,0.1); }
+        
+        header { background: #2c3e50; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+        #globalMonth { font-size: 18px; padding: 6px 10px; border-radius: 5px; border: none; font-weight: bold; cursor: pointer; color: #2c3e50; }
+        
+        .top-summary { display: flex; justify-content: space-between; background: #34495e; color: white; padding: 12px; margin: 10px; border-radius: 8px; font-size: 14px; text-align: center; align-items: center; }
+        .top-summary > div { flex: 1; }
+        .top-summary span { display: block; font-size: 15px; opacity: 0.8; margin-bottom: 3px; }
+        .val { font-weight: bold; font-size: 15px; }
+        .text-income { color: #2ecc71; }
+        .text-expense { color: #ff7675; }
+        .box-balance { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; }
+        .text-balance { color: var(--balance); font-size: 17px; }
+
+        .page { display: none; padding: 20px; }
+        .page.active { display: block; }
+        .tab-bar { position: fixed; bottom: 0; width: 100%; max-width: 600px; display: flex; background: #fff; border-top: 1px solid #ddd; z-index: 1000; }
+        .tab-btn { flex: 1; padding: 15px 0; border: none; background: none; font-size: 12px; cursor: pointer; color: #7f8c8d; }
+        .tab-btn.active { color: var(--primary); border-top: 3px solid var(--primary); font-weight: bold; }
+
+        .form-group { margin-bottom: 10px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        .btn-save { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .entry-item { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #eee; align-items: center; }
+        
+        /* 차트 영역 스타일 */
+        .chart-wrapper { position: relative; width: 100%; margin-bottom: 20px; }
+        .chart-btns { display: flex; justify-content: center; gap: 5px; margin-bottom: 10px; }
+        .chart-btns button { padding: 6px 15px; font-size: 12px; cursor: pointer; border: 1px solid #ddd; background: white; border-radius: 4px; color: #555; }
+        .chart-btns button.active { background: var(--primary); color: white; border-color: var(--primary); font-weight: bold; }
+        
+        .section-title { text-align: center; margin: 0 0 10px 0; font-size: 15px; color: #2c3e50; }
+        
+        .dual-pie-container { display: flex; gap: 10px; margin-bottom: 30px; }
+        .pie-box { flex: 1; min-width: 0; background: #f9f9f9; border: 1px solid #eee; border-radius: 8px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; }
+        .pie-title { text-align: center; font-size: 13px; font-weight: bold; color: #555; margin-bottom: 5px; }
+        .pie-canvas-wrapper { position: relative; width: 100%; height: 180px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h3 style="margin:0;">💎 가계부 Pro Max</h3>
+        <input type="month" id="globalMonth" onchange="refreshAll()">
+    </header>
+
+    <div class="top-summary">
+        <div><span>이번 달 수입</span><span id="sum-income" class="val text-income">0</span></div>
+        <div><span>이번 달 지출</span><span id="sum-expense" class="val text-expense">0</span></div>
+        <div class="box-balance"><span>💰 총 누적 잔액</span><span id="sum-balance" class="val text-balance">0</span></div>
+    </div>
+
+    <div id="page-main" class="page active">
+        <div class="form-group">
+            <div style="display:flex; gap:5px;">
+                <input type="date" id="date" style="flex:2;">
+                <input type="time" id="time" style="flex:1;">
+            </div>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <select id="type" style="flex:1;" onchange="updateCat1()"><option value="지출">지출</option><option value="수입">수입</option></select>
+                <input type="number" id="amount" placeholder="금액" style="flex:2;">
+            </div>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <select id="cat1" style="flex:1;" onchange="updateCat2()"></select>
+                <select id="cat2" style="flex:1;"></select>
+            </div>
+            <input type="text" id="memo" placeholder="상세 내역(메모)" style="margin-top:5px;">
+            <button class="btn-save" style="margin-top:10px;" onclick="addEntry()">내역 저장하기</button>
+        </div>
+        <div id="entryList"></div>
+    </div>
+
+    <div id="page-dash" class="page">
+        <h4 class="section-title">📊 카테고리별 지출 비중</h4>
+        <div class="chart-btns">
+            <button id="btn-pie-month" onclick="updatePieChart('month')" class="active">이번 달</button>
+            <button id="btn-pie-year" onclick="updatePieChart('year')">올해 전체</button>
+        </div>
+        
+        <div class="pie-box" style="height: 220px; margin-bottom: 15px;">
+            <div class="pie-title" id="balancePieTitle">수입 대비 남은 금액 (잔액 비중)</div>
+            <div class="pie-canvas-wrapper" style="height: 150px;"><canvas id="balanceChart"></canvas></div>
+        </div>
+
+        <div class="dual-pie-container">
+            <div class="pie-box">
+                <div class="pie-title">대분류</div>
+                <div class="pie-canvas-wrapper"><canvas id="cat1Chart"></canvas></div>
+            </div>
+            <div class="pie-box">
+                <div class="pie-title">소분류</div>
+                <div class="pie-canvas-wrapper"><canvas id="cat2Chart"></canvas></div>
+            </div>
+        </div>
+        
+        <h4 class="section-title" style="margin-top:40px;">📈 지출 추이 그래프</h4>
+        <div class="chart-btns">
+            <button id="btn-day" onclick="updateLineChart('day')" class="active">일별</button>
+            <button id="btn-month" onclick="updateLineChart('month')">월별</button>
+            <button id="btn-year" onclick="updateLineChart('year')">년별</button>
+        </div>
+        <div class="chart-wrapper" style="height: 250px;">
+            <canvas id="lineChart"></canvas>
+        </div>
+    </div>
+
+    <div id="page-backup" class="page">
+        <h4>💾 데이터 백업 및 복구</h4>
+        <button onclick="exportToCSV()" style="width:100%; padding:12px; background:#27ae60; color:white; border:none; border-radius:5px; margin-bottom:10px;">엑셀(CSV) 내보내기</button>
+        
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; border:1px solid #ddd;">
+            <p style="font-size:13px; margin:0 0 10px 0; font-weight:bold;">새 기기에서 파일 불러오기</p>
+            <p style="font-size:11px; color:#666; margin:0 0 10px 0;">(백업해둔 CSV 파일을 선택 후 덮어쓰기를 눌러주세요.)</p>
+            <input type="file" id="csvInput" accept=".csv" style="font-size:12px;">
+            <button onclick="importFromCSV()" style="width:100%; padding:10px; background:#34495e; color:white; border:none; border-radius:5px; margin-top:10px;">파일 데이터 덮어쓰기</button>
+        </div>
+    </div>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" id="tab-main" onclick="switchTab('main', this)">📝 내역</button>
+        <button class="tab-btn" id="tab-dash" onclick="switchTab('dash', this)">📊 분석</button>
+        <button class="tab-btn" id="tab-backup" onclick="switchTab('backup', this)">⚙️ 설정</button>
+    </div>
+</div>
+
+<script>
+    const EMBEDDED_DATA = ``;
+
+    const categoryData = {
+        "지출": {
+            "식비": ["식재료/마트", "외식", "배달", "카페", "간식", "기타"],
+            "교통": ["대중교통", "택시", "주유", "차량유지비", "기타"],
+            "주거/통신": ["월세", "관리비/공과금", "휴대폰/인터넷", "기타"],
+            "쇼핑/미용": ["의류/신발", "화장품/미용", "생활용품", "이발", "기타"],
+            "문화/여가": ["영화/공연", "여행/숙박", "도서", "취미/운동", "구독료(넷플릭스 등)", "게임", "기타"],
+            "병원": ["병원", "약국", "기타"],
+            "은행": ["예금/적금", "주식", "코인", "기타"],
+            "기타": ["경조사/선물", "의료/건강", "기타지출"]
+        },
+        "수입": {
+            "주수입": ["월급", "보너스"],
+            "부수입": ["당근거래", "알바"],
+            "금융": ["이자", "투자수익"],
+            "기타": ["용돈", "기타"]
+        }
+    };
+
+    let entries = JSON.parse(localStorage.getItem('maxEntriesV6_5')) || [];
+    let charts = { cat1Pie: null, cat2Pie: null, balancePie: null, line: null };
+    let currentLineScale = 'day';
+    let currentPieScale = 'month';
+
+    window.onload = () => {
+        try {
+            if (entries.length === 0 && EMBEDDED_DATA.trim().length > 20) {
+                parseCSVText(EMBEDDED_DATA);
+                save();
+            }
+        } catch (error) {
+            console.error("데이터 로드 중 에러 발생:", error);
+        }
+        
+        // ✨ 오늘 날짜와 현재 시간 자동 입력 세팅
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        
+        document.getElementById('globalMonth').value = `${year}-${month}`;
+        document.getElementById('date').value = `${year}-${month}-${day}`;
+        document.getElementById('time').value = `${hh}:${mm}`; // 시간 자동 입력
+        
+        updateCat1();
+        refreshAll();
+    };
+
+    function updateCat1() {
+        const type = document.getElementById('type').value;
+        const c1 = document.getElementById('cat1');
+        c1.innerHTML = '';
+        if(categoryData[type]) {
+            Object.keys(categoryData[type]).forEach(cat => { c1.innerHTML += `<option value="${cat}">${cat}</option>`; });
+        }
+        updateCat2();
+    }
+
+    function updateCat2() {
+        const type = document.getElementById('type').value;
+        const c1 = document.getElementById('cat1').value;
+        const c2 = document.getElementById('cat2');
+        c2.innerHTML = '';
+        if (c1 && categoryData[type][c1]) {
+            categoryData[type][c1].forEach(cat => { c2.innerHTML += `<option value="${cat}">${cat}</option>`; });
+        }
+    }
+
+    function addEntry() {
+        const date = document.getElementById('date').value;
+        const time = document.getElementById('time').value; // 시간 데이터
+        const type = document.getElementById('type').value;
+        const cat1 = document.getElementById('cat1').value;
+        const cat2 = document.getElementById('cat2').value;
+        const amount = parseInt(document.getElementById('amount').value);
+        const memo = document.getElementById('memo').value || "메모 없음";
+
+        if(!date || isNaN(amount)) return alert("금액과 날짜를 정확히 입력하세요.");
+
+        entries.push({ id: Date.now(), date, time, type, cat1, cat2, amount, memo });
+        save();
+        
+        document.getElementById('globalMonth').value = date.substring(0, 7);
+        refreshAll();
+        
+        document.getElementById('amount').value = '';
+        document.getElementById('memo').value = '';
+        
+        // 다음 입력을 위해 다시 현재 시간으로 맞춰주기
+        const n = new Date();
+        document.getElementById('time').value = String(n.getHours()).padStart(2, '0') + ':' + String(n.getMinutes()).padStart(2, '0');
+    }
+
+    function save() { localStorage.setItem('maxEntriesV6_5', JSON.stringify(entries)); }
+
+    function refreshAll() {
+        updateSummary();
+        renderHistory();
+        if(document.getElementById('page-dash').classList.contains('active')) renderCharts();
+    }
+
+    function updateSummary() {
+        const mon = document.getElementById('globalMonth').value;
+        const filtered = entries.filter(e => e.date.startsWith(mon));
+        let monInc = 0, monExp = 0;
+        filtered.forEach(e => e.type === '수입' ? monInc += e.amount : monExp += e.amount);
+        
+        let totalInc = 0, totalExp = 0;
+        entries.forEach(e => e.type === '수입' ? totalInc += e.amount : totalExp += e.amount);
+
+        document.getElementById('sum-income').innerText = monInc.toLocaleString() + '원';
+        document.getElementById('sum-expense').innerText = monExp.toLocaleString() + '원';
+        document.getElementById('sum-balance').innerText = (totalInc - totalExp).toLocaleString() + '원';
+    }
+
+    function renderHistory() {
+        const mon = document.getElementById('globalMonth').value;
+        const list = document.getElementById('entryList');
+        list.innerHTML = '';
+        
+        // 날짜와 시간을 합쳐서 정확한 내림차순 정렬
+        const filtered = entries.filter(e => e.date.startsWith(mon)).sort((a,b) => {
+            const timeA = a.time ? a.time : "00:00";
+            const timeB = b.time ? b.time : "00:00";
+            return new Date(b.date + 'T' + timeB) - new Date(a.date + 'T' + timeA);
+        });
+        
+        if(filtered.length === 0) return list.innerHTML = '<p style="text-align:center; color:#999; margin-top:20px;">이 달의 내역이 없습니다.</p>';
+
+        filtered.forEach(e => {
+            const timeText = e.time ? `<span style="margin-left:5px; color:#aaa; font-size:11px;">${e.time}</span>` : '';
+            
+            list.innerHTML += `<div class="entry-item">
+                <div><small>${e.date}${timeText}</small><br><b>${e.cat1} > ${e.cat2}</b><br><small style="color:#666;">${e.memo}</small></div>
+                <div style="text-align:right;">
+                    <span class="${e.type==='수입'?'text-income':'text-expense'}">${e.type==='수입'?'+':'-'}${e.amount.toLocaleString()}원</span><br>
+                    <button onclick="deleteEntry(${e.id})" style="border:none; background:none; color:#e74c3c; font-size:11px; cursor:pointer; margin-top:5px;">삭제</button>
+                </div>
+            </div>`;
+        });
+    }
+
+    function deleteEntry(id) {
+        if(confirm("이 내역을 삭제할까요?")) { entries = entries.filter(e => e.id !== id); save(); refreshAll(); }
+    }
+
+    function renderCharts() {
+        updatePieChart(currentPieScale);
+        updateLineChart(currentLineScale);
+    }
+
+    function updatePieChart(scale) {
+        currentPieScale = scale;
+        
+        document.getElementById('btn-pie-month').classList.remove('active');
+        document.getElementById('btn-pie-year').classList.remove('active');
+        document.getElementById('btn-pie-' + scale).classList.add('active');
+
+        const mon = document.getElementById('globalMonth').value; 
+        const year = mon.split('-')[0]; 
+        
+        let targetEntries = [];
+        if (scale === 'month') {
+            targetEntries = entries.filter(e => e.date.startsWith(mon));
+        } else if (scale === 'year') {
+            targetEntries = entries.filter(e => e.date.startsWith(year));
+        }
+
+        const cat1Data = {};
+        const cat2Data = {};
+        let totalInc = 0, totalExp = 0;
+        
+        targetEntries.forEach(e => {
+            if (e.type === '수입') {
+                totalInc += e.amount;
+            } else if (e.type === '지출') {
+                totalExp += e.amount;
+                cat1Data[e.cat1] = (cat1Data[e.cat1] || 0) + e.amount;
+                cat2Data[e.cat2] = (cat2Data[e.cat2] || 0) + e.amount;
+            }
+        });
+
+        const remain = totalInc - totalExp;
+        let balLabels = [], balData = [], balColors = [];
+        
+        const sortedExpLabels = Object.keys(cat2Data).sort((a, b) => cat2Data[b] - cat2Data[a]);
+        const sortedExpData = sortedExpLabels.map(k => cat2Data[k]);
+        const expColors = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c', '#ff6b6b', '#5f27cd', '#ff9ff3', '#feca57'];
+
+        if (totalInc === 0 && totalExp === 0) {
+            balLabels = ['내역 없음']; balData = [1]; balColors = ['#ecf0f1'];
+        } else if (remain < 0) {
+            balLabels = sortedExpLabels.map(label => label + ' (적자)');
+            balData = sortedExpData;
+            balColors = expColors.slice(0, sortedExpLabels.length);
+        } else {
+            balLabels = ['💰 남은 금액', ...sortedExpLabels];
+            balData = [remain, ...sortedExpData];
+            balColors = ['#2ecc71', ...expColors.slice(0, sortedExpLabels.length)]; 
+        }
+
+        if (charts.balancePie) charts.balancePie.destroy();
+        charts.balancePie = new Chart(document.getElementById('balanceChart'), {
+            type: 'doughnut',
+            data: { labels: balLabels, datasets: [{ data: balData, backgroundColor: balColors }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } } }
+        });
+
+        const sortedLabels1 = Object.keys(cat1Data).sort((a, b) => cat1Data[b] - cat1Data[a]);
+        const sortedData1 = sortedLabels1.map(k => cat1Data[k]);
+        if (charts.cat1Pie) charts.cat1Pie.destroy();
+        charts.cat1Pie = new Chart(document.getElementById('cat1Chart'), {
+            type: 'doughnut',
+            data: { labels: sortedLabels1, datasets: [{ data: sortedData1, backgroundColor: ['#3498db', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6'] }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
+        });
+
+        if (charts.cat2Pie) charts.cat2Pie.destroy();
+        charts.cat2Pie = new Chart(document.getElementById('cat2Chart'), {
+            type: 'doughnut',
+            data: { labels: sortedExpLabels, datasets: [{ data: sortedExpData, backgroundColor: expColors }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
+        });
+    }
+
+    function updateLineChart(scale) {
+        currentLineScale = scale;
+        document.getElementById('btn-day').classList.remove('active');
+        document.getElementById('btn-month').classList.remove('active');
+        document.getElementById('btn-year').classList.remove('active');
+        document.getElementById('btn-' + scale).classList.add('active');
+
+        const mon = document.getElementById('globalMonth').value;
+        const year = mon.split('-')[0];
+        const monthNum = mon.split('-')[1];
+        const expOnly = entries.filter(e => e.type === '지출');
+        
+        let dataMap = {};
+        let labels = [];
+        let dataArray = [];
+
+        // ✨ 요일을 찾는 코드가 누락되지 않도록 함수 맨 윗부분에 안전하게 고정했습니다!
+        const weekDays = ['일', '월', '화', '수', '목', '금', '토'];
+
+        // 💡 오늘 날짜 문자열 만들기 (미래 날짜 판별용, 예: "2026-03-12")
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+        if(scale === 'day') {
+            expOnly.filter(e => e.date.startsWith(mon)).forEach(e => {
+                const d = parseInt(e.date.split('-')[2]); 
+                dataMap[d] = (dataMap[d] || 0) + e.amount;
+            });
+            const lastDay = new Date(year, monthNum, 0).getDate();
+            for(let i=1; i<=lastDay; i++) {
+                //labels.push(i + '일');
+                // 날짜 옆에 요일 붙이기 (1) : 날짜에 해당하는 요일을 계산해서 라벨에 붙임 (예: "12일(목)")
+                const targetDate = new Date(year, parseInt(monthNum) - 1, i);
+                const dayName = weekDays[targetDate.getDay()];
+                labels.push(`${i}일(${dayName})`);
+
+                //dataArray.push(dataMap[i] !== undefined ? dataMap[i] : null); 
+
+                // 현재 그리는 X축의 날짜 (예: "2026-03-05")
+                const targetStr = `${year}-${monthNum}-${String(i).padStart(2, '0')}`;
+                
+                // 오늘보다 미래면 빈칸(null), 과거~오늘인데 지출이 없으면 0원!
+                if (targetStr > todayStr) {
+                    dataArray.push(null); 
+                } else {
+                    dataArray.push(dataMap[i] !== undefined ? dataMap[i] : 0);
+                }
+            }
+        } else if(scale === 'month') {
+            expOnly.filter(e => e.date.startsWith(year)).forEach(e => {
+                const m = parseInt(e.date.split('-')[1]); 
+                dataMap[m] = (dataMap[m] || 0) + e.amount;
+            });
+            //for(let i=1; i<=12; i++) {
+                //labels.push(i + '월');
+                //dataArray.push(dataMap[i] !== undefined ? dataMap[i] : null);
+            //}
+            for(let i=1; i<=12; i++) {
+                labels.push(i + '월');
+                const targetMonth = `${year}-${String(i).padStart(2, '0')}`;
+                
+                // 미래의 달은 빈칸, 지나온 달 중 지출이 없는 달은 0원
+                if (targetMonth > currentMonthStr) {
+                    dataArray.push(null);
+                } else {
+                    dataArray.push(dataMap[i] !== undefined ? dataMap[i] : 0);
+                }
+            }
+        } else {
+            expOnly.forEach(e => {
+                const y = parseInt(e.date.split('-')[0]); 
+                dataMap[y] = (dataMap[y] || 0) + e.amount;
+            });
+            labels = Object.keys(dataMap).sort((a,b) => parseInt(a) - parseInt(b));
+            dataArray = labels.map(l => dataMap[l]);
+            labels = labels.map(l => l + '년');
+        }
+        
+        if(charts.line) charts.line.destroy();
+        charts.line = new Chart(document.getElementById('lineChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{ 
+                    label: '지출액', 
+                    data: dataArray, 
+                    borderColor: '#e74c3c', 
+                    tension: 0.3, 
+                    fill: true, 
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)', 
+                    spanGaps: true 
+                }]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                scales: { 
+                    // 날짜 옆에 요일 붙이기 (2) : X축 요일에 따라 글자 색상 다르게 입히기
+                    x: {
+                        ticks: {
+                            color: function(context) {
+                                if (currentLineScale === 'day') {
+                                    const label = labels[context.index] || '';
+                                    if (label.includes('(일)')) return '#e74c3c'; // 일요일은 빨간색
+                                    if (label.includes('(토)')) return '#3498db'; // 토요일은 파란색
+                                }
+                                return '#666'; // 평일은 기본 회색
+                            }
+                        }
+                    },
+                    y: { beginAtZero: true } } }
+        });
+    }
+
+    function switchTab(id, btnElement) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        
+        document.getElementById('page-' + id).classList.add('active');
+        if (btnElement) btnElement.classList.add('active');
+        else document.getElementById('tab-' + id).classList.add('active');
+        refreshAll();
+    }
+
+    function exportToCSV() {
+        if(entries.length === 0) return alert("백업할 내역이 없습니다.");
+
+        // ✨ 핵심 추가: 백업하기 전에 날짜+시간 기준으로 '과거 -> 최신' 순으로 정렬합니다.
+        const sortedEntries = [...entries].sort((a,b) => {
+            const timeA = a.time ? a.time : "00:00";
+            const timeB = b.time ? b.time : "00:00";
+            return new Date(a.date + 'T' + timeA) - new Date(b.date + 'T' + timeB);
+        });
+        
+        let csv = "\uFEFF날짜,구분,대분류,소분류,상세내역,금액,시간\n";
+        //entries.forEach(e => csv += `${e.date},${e.type},${e.cat1},${e.cat2},"${e.memo}",${e.amount},${e.time || ""}\n`);
+        
+        // ✨ 핵심: 정렬 안 된 entries가 아니라, 방금 정렬을 끝낸 sortedEntries를 사용해서 엑셀에 씁니다!
+        sortedEntries.forEach(e => csv += `${e.date},${e.type},${e.cat1},${e.cat2},"${e.memo}",${e.amount},${e.time || ""}\n`);
+        
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a"); 
+        link.href = URL.createObjectURL(blob); 
+        
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        
+        link.download = `가계부_백업_${yyyy}${mm}${dd}_${hh}${min}${ss}.csv`; 
+        link.click();
+    }
+
+    function parseCSVText(csvText) {
+        if(!csvText) return;
+        const lines = csvText.trim().split('\n');
+        for(let i=1; i<lines.length; i++) {
+            const row = lines[i].match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g);
+            if(!row || row.length < 6) continue;
+            
+            const amountStr = row[5].replace(/[^0-9]/g, '');
+            const timeStr = row[6] ? row[6].replace(/^"|"$/g, '').trim() : ""; 
+            
+            entries.push({
+                id: Date.now() + i,
+                date: row[0].trim(), type: row[1].trim(), cat1: row[2].trim(), cat2: row[3].trim(),
+                memo: row[4].replace(/^"|"$/g, '').trim(), amount: parseInt(amountStr) || 0,
+                time: timeStr
+            });
+        }
+    }
+
+    function importFromCSV() {
+        const file = document.getElementById('csvInput').files[0];
+        if(!file) return alert("먼저 백업한 CSV 파일을 선택하세요.");
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const tempEntries = entries; 
+            entries = []; 
+            parseCSVText(e.target.result);
+            if(entries.length > 0) {
+                if(confirm(`데이터를 덮어쓰시겠습니까?`)) {
+                    save(); refreshAll(); alert("데이터가 성공적으로 복구되었습니다.");
+                } else { entries = tempEntries; }
+            } else {
+                entries = tempEntries;
+                alert("불러올 수 있는 올바른 데이터가 없습니다.");
+            }
+        };
+        reader.readAsText(file);
+    }
+</script>
+</body>
+</html>
